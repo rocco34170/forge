@@ -38,6 +38,8 @@
   .opts{display:flex; gap:14px; flex-wrap:wrap; margin-top:16px}
   .opts>div{flex:1; min-width:150px}
   .hint{font-size:12px; color:rgba(232,220,192,.4); margin-top:6px; line-height:1.5}
+  .metrow{display:flex; gap:10px; align-items:flex-start; margin-top:18px; padding-top:16px; border-top:1px solid var(--line); font-size:13px; color:rgba(232,220,192,.7); line-height:1.45; letter-spacing:normal; text-transform:none}
+  .metrow input{width:auto; margin-top:2px; flex-shrink:0; accent-color:var(--gold)}
   a{color:var(--gold)}
   .layout{display:flex; gap:24px; align-items:flex-start}
   .scenes{flex:1; min-width:0; display:flex; flex-direction:column; gap:14px}
@@ -145,6 +147,10 @@
         </select>
       </div>
     </div>
+    <label class="metrow">
+      <input type="checkbox" id="useMet" />
+      <span>Partir d'une vraie toile du Met (automatique). La Forge va chercher une peinture libre de droits et Gemini la repeint en ta scène. À utiliser côté Gemini.</span>
+    </label>
   </div>
 
   <div class="layout">
@@ -170,7 +176,7 @@
     gemini: [["gemini-3.1-flash-image","Gemini 3.1 Flash Image (Nano Banana)"],["gemini-2.5-flash-image","Gemini 2.5 Flash Image"]]
   };
   const STYLES = {
-    renaissance: "rendered as a classical Renaissance oil painting on canvas, warm muted faded palette, cracked varnish texture, painterly brushwork, soft chiaroscuro lighting, old master museum aesthetic",
+    renaissance: "painted as an aged old master oil painting on rough canvas, thick visible brushstrokes and impasto, heavy craquelure and cracked yellowed varnish, desaturated muted earthy palette, soft candlelit chiaroscuro, the look of a centuries old museum painting photographed under warm light, subtle canvas texture and fine grain",
     darkcine: "dark cinematic photograph, dramatic chiaroscuro, moody atmosphere, film grain, shallow depth of field, photorealistic",
     ghibli: "in the style of a hand painted Japanese animation film, soft watercolor backgrounds, warm nostalgic light, lush detailed scenery, gentle painterly anime aesthetic",
     hyperreal: "hyperrealistic photograph, real people and real environments, natural lighting, ultra detailed skin and fabric textures, shot on a full frame camera with a 50mm lens, shallow depth of field, cinematic color grade",
@@ -274,6 +280,55 @@
     }
   }
 
+  // ---- Met : récupération automatique d'une vraie toile ----
+  function loadImageAsDataUrl(url){
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try{
+          const max = 1024;
+          let w = img.naturalWidth, h = img.naturalHeight;
+          if(Math.max(w,h) > max){ const r = max/Math.max(w,h); w = Math.round(w*r); h = Math.round(h*r); }
+          const c = document.createElement("canvas");
+          c.width = w; c.height = h;
+          c.getContext("2d").drawImage(img, 0, 0, w, h);
+          res(c.toDataURL("image/jpeg", 0.92));
+        }catch(e){ rej(new Error("Lecture de la toile bloquée (CORS)")); }
+      };
+      img.onerror = () => rej(new Error("Chargement de la toile échoué"));
+      img.src = url + (url.indexOf("?")>=0 ? "&" : "?") + "c=1";
+    });
+  }
+
+  async function metFindPainting(keyword){
+    const base = "https://collectionapi.metmuseum.org/public/collection/v1";
+    async function search(q){
+      const r = await fetch(base+"/search?hasImages=true&medium=Paintings&q="+encodeURIComponent(q));
+      const j = await r.json();
+      return j.objectIDs || [];
+    }
+    let ids = await search(keyword);
+    if(!ids.length) ids = await search("painting");
+    if(!ids.length) throw new Error("Aucune toile trouvée");
+    ids = ids.slice(0, 80).sort(() => Math.random()-0.5);
+    for(let i=0; i<Math.min(10, ids.length); i++){
+      try{
+        const o = await (await fetch(base+"/objects/"+ids[i])).json();
+        if(o && o.isPublicDomain && o.primaryImage){
+          return await loadImageAsDataUrl(o.primaryImage);
+        }
+      }catch(e){ /* on essaie la suivante */ }
+    }
+    throw new Error("Pas de toile libre de droits exploitable, réessaie");
+  }
+
+  function metKeyword(prompt){
+    const stop = ["a","an","the","of","and","with","into","his","her","their","seated","standing","young","old","dark","light"];
+    const words = prompt.toLowerCase().replace(/[^a-z ]/g," ").split(" ").filter(w => w.length>3 && stop.indexOf(w)<0);
+    return words.slice(0,3).join(" ") || "portrait";
+  }
+
   function addScene(){
     counter++;
     scenes.push({ id:"s"+counter, n:scenes.length+1, prompt:"", status:"idle", src:null, error:null, editOpen:false });
@@ -291,7 +346,16 @@
     s.prompt = ta ? (ta.value||"").trim() : s.prompt;
     if(!s.prompt) return;
     s.status="loading"; s.error=null; updateScene(s);
-    try{ s.src = await callGenerate(s.prompt); s.status="done"; }
+    try{
+      if($("useMet").checked){
+        const toile = await metFindPainting(metKeyword(s.prompt));
+        const instruction = buildPrompt(s.prompt) + ". Repaint this real classical painting into the scene described, keep its authentic aged oil on canvas texture, visible brushstrokes and craquelure.";
+        s.src = await callEdit(toile, instruction);
+      } else {
+        s.src = await callGenerate(s.prompt);
+      }
+      s.status="done";
+    }
     catch(e){ s.status="error"; s.error=e.message; }
     updateScene(s);
   }
