@@ -550,11 +550,11 @@
 
   async function gAIC(page){
     try{
-      const f="id,title,image_id,artist_title,date_display,is_public_domain";
-      const r=await fetch("https://api.artic.edu/api/v1/artworks/search?q="+enc(gTerm)+"&fields="+f+"&limit=20&page="+page);
+      const f="id,title,image_id,artist_title,date_display,is_public_domain,artwork_type_title";
+      const r=await fetch("https://api.artic.edu/api/v1/artworks/search?q="+enc(gTerm)+"&fields="+f+"&limit=40&page="+page);
       const j=await r.json(); const iiif=(j.config&&j.config.iiif_url)||"https://www.artic.edu/iiif/2";
       (j.data||[]).forEach(function(d){
-        if(d.is_public_domain && d.image_id){
+        if(d.is_public_domain && d.image_id && d.artwork_type_title && /painting/i.test(d.artwork_type_title)){
           addItem({ title:d.title, artist:[d.artist_title,d.date_display].filter(Boolean).join(" · "),
             thumb:iiif+"/"+d.image_id+"/full/400,/0/default.jpg", full:iiif+"/"+d.image_id+"/full/1686,/0/default.jpg",
             source:"Art Institute of Chicago" });
@@ -565,8 +565,8 @@
 
   async function gCleveland(page){
     try{
-      const skip=(page-1)*20;
-      const r=await fetch("https://openaccess-api.clevelandart.org/api/artworks/?q="+enc(gTerm)+"&cc0=1&has_image=1&limit=20&skip="+skip);
+      const skip=(page-1)*30;
+      const r=await fetch("https://openaccess-api.clevelandart.org/api/artworks/?q="+enc(gTerm)+"&cc0=1&has_image=1&type=Painting&limit=30&skip="+skip);
       const j=await r.json();
       (j.data||[]).forEach(function(d){
         const img=d.images&&(d.images.web||d.images.print||d.images.full);
@@ -579,10 +579,10 @@
   }
 
   async function gMetPage(){
-    const slice=gMetIDs.slice(gMetIdx, gMetIdx+12); gMetIdx+=12;
+    const slice=gMetIDs.slice(gMetIdx, gMetIdx+18); gMetIdx+=18;
     const res=await Promise.all(slice.map(function(id){ return fetch(MET+"/objects/"+id).then(r=>r.json()).catch(()=>null); }));
     res.forEach(function(o){
-      if(o && o.isPublicDomain && o.primaryImageSmall){
+      if(o && o.isPublicDomain && o.primaryImageSmall && o.classification && o.classification.toLowerCase().indexOf("painting")>=0){
         addItem({ title:o.title, artist:[o.artistDisplayName,o.objectDate].filter(Boolean).join(" · "),
           thumb:o.primaryImageSmall, full:o.primaryImage||o.primaryImageSmall, source:"The Met" });
       }
