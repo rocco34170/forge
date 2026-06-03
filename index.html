@@ -106,7 +106,14 @@
   #view-galerie .gallery{column-count:3; column-gap:16px; margin-top:18px}
   @media(max-width:780px){ #view-galerie .gallery{column-count:2} }
   @media(max-width:460px){ #view-galerie .gallery{column-count:1} }
-  #view-galerie .card{break-inside:avoid; margin-bottom:16px; background:rgba(232,220,192,.03); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  #view-galerie .card{break-inside:avoid; margin-bottom:16px; background:rgba(232,220,192,.03); border:1px solid var(--line); border-radius:12px; overflow:hidden; position:relative}
+  #view-galerie .pick{position:absolute; top:8px; left:8px; width:27px; height:27px; border-radius:50%; background:rgba(13,12,10,.72); border:1px solid rgba(232,220,192,.55); color:transparent; display:flex; align-items:center; justify-content:center; font-size:15px; line-height:1; cursor:pointer; z-index:2}
+  #view-galerie .card.sel .pick{background:var(--gold); border-color:var(--gold); color:#1a1407}
+  #view-galerie .card.sel{outline:2px solid var(--gold); outline-offset:-2px}
+  .selbar{position:fixed; bottom:18px; left:50%; transform:translateX(-50%); display:flex; gap:10px; align-items:center; background:rgba(20,18,14,.96); border:1px solid var(--gold); border-radius:14px; padding:10px 14px; z-index:50; box-shadow:0 14px 40px -10px rgba(0,0,0,.85)}
+  .selbar span{font-size:14px; color:var(--parch)}
+  .selbar button{background:linear-gradient(180deg,var(--gold-bright),var(--gold)); color:#1a1407; border:none; border-radius:9px; padding:9px 14px; font-size:13px; font-weight:600; font-family:'Spectral',serif; cursor:pointer}
+  .selbar button.ghost{background:transparent; border:1px solid var(--line); color:var(--soft); font-weight:400}
   #view-galerie .card img{width:100%; display:block}
   #view-galerie .meta{padding:11px 13px}
   #view-galerie .title{font-family:'Cormorant Garamond',serif; font-size:18px; color:#f3e9cf; line-height:1.2; margin:0 0 4px}
@@ -211,6 +218,11 @@
     <div class="gstatus" id="gstatus"></div>
     <div class="gallery" id="ggallery"></div>
     <button class="more" id="gmore" style="display:none">Charger plus</button>
+    <div id="selbar" class="selbar" style="display:none">
+      <span id="selcount">0 sélectionnée</span>
+      <button id="seldl">Tout télécharger</button>
+      <button id="selclear" class="ghost">Vider</button>
+    </div>
     <footer>Œuvres de la collection en accès libre du Metropolitan Museum of Art, domaine public.</footer>
   </div>
 </div>
@@ -521,6 +533,7 @@
   const MET = "https://collectionapi.metmuseum.org/public/collection/v1";
   let gShown = 0, gTerm = "", gPage = 1, gMetIDs = [], gMetIdx = 0;
   let gSeen = new Set();
+  let gSelected = new Map();
   const GSUGGEST = ["Socrates","Julius Caesar","Marcus Aurelius","death","war","king","philosopher","Jerusalem","Rome","saint"];
   GSUGGEST.forEach(function(s){
     const c=document.createElement("button"); c.className="gchip"; c.textContent=s;
@@ -540,6 +553,7 @@
     gTerm=$("gq").value.trim(); if(!gTerm) return;
     $("ggallery").innerHTML=""; $("gmore").style.display="none";
     gShown=0; gPage=1; gMetIDs=[]; gMetIdx=0; gSeen=new Set();
+    gSelected.clear(); updateBar();
     $("gstatus").innerHTML='<span class="spin"></span> Recherche dans plusieurs musées...';
     try{
       const r=await fetch(MET+"/search?hasImages=true&q="+enc(gTerm));
@@ -550,7 +564,7 @@
 
   async function gLoad(){
     $("gstatus").innerHTML='<span class="spin"></span> Sélection des œuvres...';
-    await Promise.all([ gAIC(gPage), gCleveland(gPage), gMetPage() ]);
+    await Promise.all([ gAIC(gPage), gCleveland(gPage), gMetPage(), gVAM(gPage) ]);
     $("gstatus").textContent = gShown ? (gShown+" œuvres trouvées") : "Rien trouvé. Essaie un autre mot, en anglais.";
     $("gmore").style.display = gShown ? "block" : "none";
     gPage++;
@@ -597,6 +611,23 @@
     });
   }
 
+  async function gVAM(page){
+    try{
+      const r=await fetch("https://api.vam.ac.uk/v2/objects/search?q="+enc(gTerm)+"&page_size=30&page="+page);
+      const j=await r.json();
+      (j.records||[]).forEach(function(d){
+        const ot=(d.objectType||"").toLowerCase();
+        const id=d._primaryImageId;
+        if(id && ot.indexOf("painting")>=0){
+          const fm="https://framemark.vam.ac.uk/collections/"+id;
+          addItem({ title:d._primaryTitle||d.objectType||"Sans titre",
+            artist:[ (d._primaryMaker&&d._primaryMaker.name), (d._primaryDate&&d._primaryDate.text) ].filter(Boolean).join(" · "),
+            thumb:fm+"/full/!300,/0/default.jpg", full:fm+"/full/843,/0/default.jpg", source:"Victoria and Albert" });
+        }
+      });
+    }catch(e){}
+  }
+
   function addItem(it){
     const key=((it.title||"")+"|"+(it.artist||"")).toLowerCase().replace(/\s+/g," ").trim();
     if(gSeen.has(key)) return;
@@ -604,6 +635,10 @@
     gShown++;
     const card=document.createElement("div"); card.className="card";
     const img=document.createElement("img"); img.loading="lazy"; img.src=it.thumb; img.alt=it.title||""; card.appendChild(img);
+    const pick=document.createElement("div"); pick.className="pick"; pick.textContent="✓";
+    pick.onclick=function(){ toggleSelect(it, card); };
+    card.appendChild(pick);
+    if(gSelected.has(it.full)) card.classList.add("sel");
     const meta=document.createElement("div"); meta.className="meta";
     const t=document.createElement("p"); t.className="title"; t.textContent=it.title||"Sans titre";
     const a=document.createElement("p"); a.className="artist"; a.textContent=(it.artist||"Artiste inconnu")+" — "+it.source;
@@ -620,6 +655,32 @@
     try{ const r=await fetch(url); const b=await r.blob(); const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=clean+".jpg"; a.click(); URL.revokeObjectURL(u); }
     catch(e){ window.open(url,"_blank"); }
   }
+
+  function toggleSelect(it, card){
+    if(gSelected.has(it.full)){ gSelected.delete(it.full); card.classList.remove("sel"); }
+    else { gSelected.set(it.full, it); card.classList.add("sel"); }
+    updateBar();
+  }
+  function updateBar(){
+    const n=gSelected.size;
+    $("selcount").textContent = n+" sélectionnée"+(n>1?"s":"");
+    $("selbar").style.display = n ? "flex" : "none";
+  }
+  async function downloadSelection(){
+    const items=Array.from(gSelected.values());
+    const btn=$("seldl"); const lbl=btn.textContent; btn.disabled=true; btn.textContent="Téléchargement...";
+    for(let i=0;i<items.length;i++){
+      await gDownload(items[i].full, items[i].title || ("toile_"+(i+1)));
+      await new Promise(function(r){ setTimeout(r, 500); });
+    }
+    btn.disabled=false; btn.textContent=lbl;
+  }
+  $("seldl").addEventListener("click", downloadSelection);
+  $("selclear").addEventListener("click", function(){
+    gSelected.clear();
+    document.querySelectorAll("#view-galerie .card.sel").forEach(function(c){ c.classList.remove("sel"); });
+    updateBar();
+  });
 
   $("ggo").addEventListener("click", gSearch);
   $("gq").addEventListener("keydown", function(e){ if(e.key==="Enter") gSearch(); });
