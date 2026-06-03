@@ -517,52 +517,89 @@
   setProvider("openai");
   for(let i=0;i<10;i++) addScene();
 
-  // ===== La Galerie : sélection de vraies toiles (Met) =====
-  const GBASE = "https://collectionapi.metmuseum.org/public/collection/v1";
-  let gPool = [], gShown = 0;
-  const GSUGGEST = ["Socrates","Marcus Aurelius","death","war","king","philosopher","Jerusalem","Rome","storm","saint"];
+  // ===== La Galerie : sélection de vraies toiles (Met + Art Institute + Cleveland) =====
+  const MET = "https://collectionapi.metmuseum.org/public/collection/v1";
+  let gShown = 0, gTerm = "", gPage = 1, gMetIDs = [], gMetIdx = 0;
+  const GSUGGEST = ["Socrates","Julius Caesar","Marcus Aurelius","death","war","king","philosopher","Jerusalem","Rome","saint"];
   GSUGGEST.forEach(function(s){
     const c=document.createElement("button"); c.className="gchip"; c.textContent=s;
     c.onclick=function(){ $("gq").value=s; gSearch(); };
     $("gchips").appendChild(c);
   });
+  const enc = encodeURIComponent;
 
   async function gSearch(){
-    const term=$("gq").value.trim(); if(!term) return;
-    $("ggallery").innerHTML=""; $("gmore").style.display="none"; gShown=0;
-    $("gstatus").innerHTML='<span class="spin"></span> Recherche dans la collection...';
+    gTerm=$("gq").value.trim(); if(!gTerm) return;
+    $("ggallery").innerHTML=""; $("gmore").style.display="none";
+    gShown=0; gPage=1; gMetIDs=[]; gMetIdx=0;
+    $("gstatus").innerHTML='<span class="spin"></span> Recherche dans plusieurs musées...';
     try{
-      const r=await fetch(GBASE+"/search?hasImages=true&medium=Paintings&q="+encodeURIComponent(term));
-      const j=await r.json(); gPool=j.objectIDs||[];
-      if(!gPool.length){ $("gstatus").textContent="Aucune toile pour ce mot. Essaie un terme plus large, en anglais."; return; }
-      await gBatch(20);
-    }catch(e){ $("gstatus").textContent="Connexion à la collection impossible ici. Héberge la page et réessaie."; }
+      const r=await fetch(MET+"/search?hasImages=true&q="+enc(gTerm));
+      gMetIDs=((await r.json()).objectIDs)||[];
+    }catch(e){ gMetIDs=[]; }
+    await gLoad();
   }
 
-  async function gBatch(target){
-    $("gstatus").innerHTML='<span class="spin"></span> Sélection des toiles...';
-    let added=0;
-    while(added<target && gPool.length){
-      const batch=gPool.splice(0,6);
-      const res=await Promise.all(batch.map(gFetch));
-      res.forEach(function(o){ if(o && o.isPublicDomain && o.primaryImageSmall){ gCard(o); added++; gShown++; } });
-    }
-    $("gstatus").textContent = gShown ? (gShown+" toiles trouvées") : "Rien d'exploitable, essaie un autre mot.";
-    $("gmore").style.display = gPool.length ? "block" : "none";
+  async function gLoad(){
+    $("gstatus").innerHTML='<span class="spin"></span> Sélection des œuvres...';
+    await Promise.all([ gAIC(gPage), gCleveland(gPage), gMetPage() ]);
+    $("gstatus").textContent = gShown ? (gShown+" œuvres trouvées") : "Rien trouvé. Essaie un autre mot, en anglais.";
+    $("gmore").style.display = gShown ? "block" : "none";
+    gPage++;
   }
 
-  async function gFetch(id){ try{ return await (await fetch(GBASE+"/objects/"+id)).json(); }catch(e){ return null; } }
+  async function gAIC(page){
+    try{
+      const f="id,title,image_id,artist_title,date_display,is_public_domain";
+      const r=await fetch("https://api.artic.edu/api/v1/artworks/search?q="+enc(gTerm)+"&fields="+f+"&limit=20&page="+page);
+      const j=await r.json(); const iiif=(j.config&&j.config.iiif_url)||"https://www.artic.edu/iiif/2";
+      (j.data||[]).forEach(function(d){
+        if(d.is_public_domain && d.image_id){
+          addItem({ title:d.title, artist:[d.artist_title,d.date_display].filter(Boolean).join(" · "),
+            thumb:iiif+"/"+d.image_id+"/full/400,/0/default.jpg", full:iiif+"/"+d.image_id+"/full/1686,/0/default.jpg",
+            source:"Art Institute of Chicago" });
+        }
+      });
+    }catch(e){}
+  }
 
-  function gCard(o){
+  async function gCleveland(page){
+    try{
+      const skip=(page-1)*20;
+      const r=await fetch("https://openaccess-api.clevelandart.org/api/artworks/?q="+enc(gTerm)+"&cc0=1&has_image=1&limit=20&skip="+skip);
+      const j=await r.json();
+      (j.data||[]).forEach(function(d){
+        const img=d.images&&(d.images.web||d.images.print||d.images.full);
+        if(img&&img.url){
+          addItem({ title:d.title, artist:[(d.creators&&d.creators[0]&&d.creators[0].description),d.creation_date].filter(Boolean).join(" · "),
+            thumb:img.url, full:((d.images.print&&d.images.print.url)||img.url), source:"Cleveland Museum of Art" });
+        }
+      });
+    }catch(e){}
+  }
+
+  async function gMetPage(){
+    const slice=gMetIDs.slice(gMetIdx, gMetIdx+12); gMetIdx+=12;
+    const res=await Promise.all(slice.map(function(id){ return fetch(MET+"/objects/"+id).then(r=>r.json()).catch(()=>null); }));
+    res.forEach(function(o){
+      if(o && o.isPublicDomain && o.primaryImageSmall){
+        addItem({ title:o.title, artist:[o.artistDisplayName,o.objectDate].filter(Boolean).join(" · "),
+          thumb:o.primaryImageSmall, full:o.primaryImage||o.primaryImageSmall, source:"The Met" });
+      }
+    });
+  }
+
+  function addItem(it){
+    gShown++;
     const card=document.createElement("div"); card.className="card";
-    const img=document.createElement("img"); img.loading="lazy"; img.src=o.primaryImageSmall; img.alt=o.title||""; card.appendChild(img);
+    const img=document.createElement("img"); img.loading="lazy"; img.src=it.thumb; img.alt=it.title||""; card.appendChild(img);
     const meta=document.createElement("div"); meta.className="meta";
-    const t=document.createElement("p"); t.className="title"; t.textContent=o.title||"Sans titre";
-    const a=document.createElement("p"); a.className="artist"; a.textContent=[o.artistDisplayName,o.objectDate].filter(Boolean).join(" · ")||"Artiste inconnu";
+    const t=document.createElement("p"); t.className="title"; t.textContent=it.title||"Sans titre";
+    const a=document.createElement("p"); a.className="artist"; a.textContent=(it.artist||"Artiste inconnu")+" — "+it.source;
     meta.appendChild(t); meta.appendChild(a);
     const btns=document.createElement("div"); btns.className="btns";
-    const open=document.createElement("a"); open.textContent="Ouvrir en grand"; open.href=o.primaryImage||o.primaryImageSmall; open.target="_blank"; open.rel="noopener";
-    const dl=document.createElement("button"); dl.textContent="Télécharger"; dl.onclick=function(){ gDownload(o.primaryImage||o.primaryImageSmall, o.title||"toile"); };
+    const open=document.createElement("a"); open.textContent="Ouvrir en grand"; open.href=it.full; open.target="_blank"; open.rel="noopener";
+    const dl=document.createElement("button"); dl.textContent="Télécharger"; dl.onclick=function(){ gDownload(it.full, it.title||"toile"); };
     btns.appendChild(open); btns.appendChild(dl); meta.appendChild(btns);
     card.appendChild(meta); $("ggallery").appendChild(card);
   }
@@ -575,7 +612,7 @@
 
   $("ggo").addEventListener("click", gSearch);
   $("gq").addEventListener("keydown", function(e){ if(e.key==="Enter") gSearch(); });
-  $("gmore").addEventListener("click", function(){ gBatch(20); });
+  $("gmore").addEventListener("click", function(){ gLoad(); });
 
   // ===== onglets =====
   function showView(v){
