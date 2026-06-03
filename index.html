@@ -528,6 +528,13 @@
   });
   const enc = encodeURIComponent;
 
+  function relevant(text){
+    const words = gTerm.toLowerCase().split(/\s+/).filter(function(w){ return w.length>=3; });
+    if(!words.length) return true;
+    const hay = (text||"").toLowerCase();
+    return words.some(function(w){ return hay.indexOf(w)>=0; });
+  }
+
   async function gSearch(){
     gTerm=$("gq").value.trim(); if(!gTerm) return;
     $("ggallery").innerHTML=""; $("gmore").style.display="none";
@@ -590,6 +597,7 @@
   }
 
   function addItem(it){
+    if(!relevant((it.title||"")+" "+(it.artist||""))) return;
     gShown++;
     const card=document.createElement("div"); card.className="card";
     const img=document.createElement("img"); img.loading="lazy"; img.src=it.thumb; img.alt=it.title||""; card.appendChild(img);
