@@ -114,6 +114,17 @@
 
     <div class="opts">
       <div>
+        <label>Style</label>
+        <select id="style">
+          <option value="renaissance" selected>Peinture Renaissance</option>
+          <option value="darkcine">Cinématique sombre</option>
+          <option value="ghibli">Ghibli</option>
+          <option value="hyperreal">Hyperréaliste</option>
+          <option value="engraving">Gravure ancienne</option>
+          <option value="none">Brut (sans style)</option>
+        </select>
+      </div>
+      <div>
         <label>Modèle</label>
         <select id="model"></select>
       </div>
@@ -158,6 +169,14 @@
     openai: [["gpt-image-1.5","GPT Image 1.5 (équilibré)"],["gpt-image-2","GPT Image 2 (qualité max)"],["gpt-image-1-mini","GPT Image Mini (éco)"]],
     gemini: [["gemini-3.1-flash-image","Gemini 3.1 Flash Image (Nano Banana)"],["gemini-2.5-flash-image","Gemini 2.5 Flash Image"]]
   };
+  const STYLES = {
+    renaissance: "rendered as a classical Renaissance oil painting on canvas, warm muted faded palette, cracked varnish texture, painterly brushwork, soft chiaroscuro lighting, old master museum aesthetic",
+    darkcine: "dark cinematic photograph, dramatic chiaroscuro, moody atmosphere, film grain, shallow depth of field, photorealistic",
+    ghibli: "in the style of a hand painted Japanese animation film, soft watercolor backgrounds, warm nostalgic light, lush detailed scenery, gentle painterly anime aesthetic",
+    hyperreal: "hyperrealistic photograph, real people and real environments, natural lighting, ultra detailed skin and fabric textures, shot on a full frame camera with a 50mm lens, shallow depth of field, cinematic color grade",
+    engraving: "antique steel engraving illustration, fine cross hatching, monochrome ink, vintage etched texture, dramatic shading",
+    none: ""
+  };
   let provider = "openai";
   let scenes = [];
   let counter = 0;
@@ -195,10 +214,16 @@
     return "square 1:1 aspect ratio";
   }
 
+  function buildPrompt(raw){
+    const s = STYLES[$("style").value] || "";
+    return s ? (raw + ", " + s) : raw;
+  }
+
   async function callGenerate(prompt){
     const key = $("key").value.trim();
+    const full = buildPrompt(prompt);
     if(provider==="openai"){
-      const body = { model:$("model").value, prompt:prompt, n:1, size:$("size").value, quality:$("quality").value };
+      const body = { model:$("model").value, prompt:full, n:1, size:$("size").value, quality:$("quality").value };
       const r = await fetch("https://api.openai.com/v1/images/generations", {
         method:"POST", headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+key }, body:JSON.stringify(body)
       });
@@ -206,7 +231,7 @@
       if(!r.ok) throw new Error(j.error ? j.error.message : "Erreur "+r.status);
       return "data:image/png;base64," + j.data[0].b64_json;
     } else {
-      const body = { contents:[{ parts:[{ text: prompt + " ("+aspectPhrase()+")" }] }], generationConfig:{ responseModalities:["TEXT","IMAGE"] } };
+      const body = { contents:[{ parts:[{ text: full + " ("+aspectPhrase()+")" }] }], generationConfig:{ responseModalities:["TEXT","IMAGE"] } };
       const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+$("model").value+":generateContent", {
         method:"POST", headers:{ "Content-Type":"application/json", "x-goog-api-key":key }, body:JSON.stringify(body)
       });
