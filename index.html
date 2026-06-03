@@ -93,6 +93,31 @@
     border-radius:11px; padding:13px; font-size:15px; font-weight:600; font-family:'Spectral',serif; cursor:pointer}
   .cta:disabled{opacity:.55; cursor:wait}
   footer{margin-top:40px; text-align:center; font-size:12px; color:rgba(232,220,192,.35); line-height:1.6}
+  .tabs{display:flex; gap:8px; justify-content:center; margin-bottom:24px}
+  .tabs button{background:rgba(0,0,0,.2); border:1px solid var(--line); color:var(--soft); border-radius:999px; padding:9px 22px; font-size:14px; font-family:'Spectral',serif; cursor:pointer}
+  .tabs button.on{background:var(--gold); color:#1a1407; border-color:var(--gold); font-weight:600}
+  #view-galerie .search{display:flex; gap:10px; max-width:620px; margin:8px auto 6px}
+  #view-galerie .search input{flex:1; background:rgba(0,0,0,.25); border:1px solid rgba(201,162,39,.3); border-radius:12px; padding:14px 16px; color:var(--parch); font-size:16px; font-family:'Cormorant Garamond',serif; outline:none}
+  #view-galerie .search button{background:linear-gradient(180deg,var(--gold-bright),var(--gold)); color:#1a1407; border:none; border-radius:12px; padding:0 22px; font-size:15px; font-weight:600; font-family:'Spectral',serif; cursor:pointer}
+  #view-galerie .gchips{display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin:6px auto 0; max-width:640px}
+  #view-galerie .gchip{background:rgba(0,0,0,.2); border:1px solid var(--line); color:rgba(232,220,192,.7); border-radius:999px; padding:7px 14px; font-size:13px; cursor:pointer; font-family:'Spectral',serif}
+  #view-galerie .gchip:hover{background:rgba(201,162,39,.14); color:var(--parch)}
+  #view-galerie .gstatus{text-align:center; margin:22px 0 4px; font-size:14px; color:var(--soft); min-height:20px}
+  #view-galerie .gallery{column-count:3; column-gap:16px; margin-top:18px}
+  @media(max-width:780px){ #view-galerie .gallery{column-count:2} }
+  @media(max-width:460px){ #view-galerie .gallery{column-count:1} }
+  #view-galerie .card{break-inside:avoid; margin-bottom:16px; background:rgba(232,220,192,.03); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  #view-galerie .card img{width:100%; display:block}
+  #view-galerie .meta{padding:11px 13px}
+  #view-galerie .title{font-family:'Cormorant Garamond',serif; font-size:18px; color:#f3e9cf; line-height:1.2; margin:0 0 4px}
+  #view-galerie .artist{font-size:12.5px; color:var(--soft); margin:0 0 10px}
+  #view-galerie .btns{display:flex; gap:8px}
+  #view-galerie .btns a, #view-galerie .btns button{flex:1; text-align:center; text-decoration:none; background:rgba(232,220,192,.05); border:1px solid rgba(201,162,39,.22); color:rgba(232,220,192,.88); border-radius:8px; padding:8px; font-size:12.5px; font-family:'Spectral',serif; cursor:pointer}
+  #view-galerie .btns a:hover, #view-galerie .btns button:hover{background:rgba(201,162,39,.14)}
+  #view-galerie .more{display:block; margin:26px auto 0; background:rgba(0,0,0,.2); border:1px dashed rgba(201,162,39,.35); color:var(--soft); border-radius:11px; padding:13px 26px; font-size:14px; font-family:'Spectral',serif; cursor:pointer}
+  #view-galerie .more:hover{color:var(--gold)}
+  #view-galerie .spin{display:inline-block; width:18px; height:18px; border:3px solid rgba(201,162,39,.25); border-top-color:var(--gold); border-radius:50%; animation:sp 1s linear infinite; vertical-align:middle}
+  @keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -103,6 +128,12 @@
     <p class="sub">Une scène, un bouton. Lance ce que tu veux, dans l'ordre que tu veux. Refais ou retouche les images qui ne te plaisent pas.</p>
   </header>
 
+  <div class="tabs">
+    <button id="tabForge" class="on">La Forge</button>
+    <button id="tabGalerie">La Galerie</button>
+  </div>
+
+  <div id="view-forge">
   <div class="panel">
     <label>Moteur</label>
     <div class="toggle" id="provToggle">
@@ -167,6 +198,21 @@
   </div>
 
   <footer>Tout se passe dans ton navigateur. Les images sont générées via ton propre compte et restent chez toi.</footer>
+  </div>
+
+  <div id="view-galerie" style="display:none">
+    <p class="sub" style="text-align:center; max-width:560px; margin:0 auto 4px">Tape un thème, un personnage ou une idée. La Galerie te sort de vraies peintures de maîtres, libres de droits, en rapport.</p>
+    <div class="search">
+      <input id="gq" placeholder="ex. Socrates, stoic, death, war, king, Jerusalem..." />
+      <button id="ggo">Chercher</button>
+    </div>
+    <p class="hint" style="text-align:center">Catalogue en anglais : tape tes mots-clés en anglais. Toutes les œuvres sont dans le domaine public.</p>
+    <div class="gchips" id="gchips"></div>
+    <div class="gstatus" id="gstatus"></div>
+    <div class="gallery" id="ggallery"></div>
+    <button class="more" id="gmore" style="display:none">Charger plus</button>
+    <footer>Œuvres de la collection en accès libre du Metropolitan Museum of Art, domaine public.</footer>
+  </div>
 </div>
 
 <script>
@@ -470,6 +516,76 @@
 
   setProvider("openai");
   for(let i=0;i<10;i++) addScene();
+
+  // ===== La Galerie : sélection de vraies toiles (Met) =====
+  const GBASE = "https://collectionapi.metmuseum.org/public/collection/v1";
+  let gPool = [], gShown = 0;
+  const GSUGGEST = ["Socrates","Marcus Aurelius","death","war","king","philosopher","Jerusalem","Rome","storm","saint"];
+  GSUGGEST.forEach(function(s){
+    const c=document.createElement("button"); c.className="gchip"; c.textContent=s;
+    c.onclick=function(){ $("gq").value=s; gSearch(); };
+    $("gchips").appendChild(c);
+  });
+
+  async function gSearch(){
+    const term=$("gq").value.trim(); if(!term) return;
+    $("ggallery").innerHTML=""; $("gmore").style.display="none"; gShown=0;
+    $("gstatus").innerHTML='<span class="spin"></span> Recherche dans la collection...';
+    try{
+      const r=await fetch(GBASE+"/search?hasImages=true&medium=Paintings&q="+encodeURIComponent(term));
+      const j=await r.json(); gPool=j.objectIDs||[];
+      if(!gPool.length){ $("gstatus").textContent="Aucune toile pour ce mot. Essaie un terme plus large, en anglais."; return; }
+      await gBatch(20);
+    }catch(e){ $("gstatus").textContent="Connexion à la collection impossible ici. Héberge la page et réessaie."; }
+  }
+
+  async function gBatch(target){
+    $("gstatus").innerHTML='<span class="spin"></span> Sélection des toiles...';
+    let added=0;
+    while(added<target && gPool.length){
+      const batch=gPool.splice(0,6);
+      const res=await Promise.all(batch.map(gFetch));
+      res.forEach(function(o){ if(o && o.isPublicDomain && o.primaryImageSmall){ gCard(o); added++; gShown++; } });
+    }
+    $("gstatus").textContent = gShown ? (gShown+" toiles trouvées") : "Rien d'exploitable, essaie un autre mot.";
+    $("gmore").style.display = gPool.length ? "block" : "none";
+  }
+
+  async function gFetch(id){ try{ return await (await fetch(GBASE+"/objects/"+id)).json(); }catch(e){ return null; } }
+
+  function gCard(o){
+    const card=document.createElement("div"); card.className="card";
+    const img=document.createElement("img"); img.loading="lazy"; img.src=o.primaryImageSmall; img.alt=o.title||""; card.appendChild(img);
+    const meta=document.createElement("div"); meta.className="meta";
+    const t=document.createElement("p"); t.className="title"; t.textContent=o.title||"Sans titre";
+    const a=document.createElement("p"); a.className="artist"; a.textContent=[o.artistDisplayName,o.objectDate].filter(Boolean).join(" · ")||"Artiste inconnu";
+    meta.appendChild(t); meta.appendChild(a);
+    const btns=document.createElement("div"); btns.className="btns";
+    const open=document.createElement("a"); open.textContent="Ouvrir en grand"; open.href=o.primaryImage||o.primaryImageSmall; open.target="_blank"; open.rel="noopener";
+    const dl=document.createElement("button"); dl.textContent="Télécharger"; dl.onclick=function(){ gDownload(o.primaryImage||o.primaryImageSmall, o.title||"toile"); };
+    btns.appendChild(open); btns.appendChild(dl); meta.appendChild(btns);
+    card.appendChild(meta); $("ggallery").appendChild(card);
+  }
+
+  async function gDownload(url,name){
+    const clean=name.replace(/[^a-z0-9]/gi,"_").toLowerCase().slice(0,40);
+    try{ const r=await fetch(url); const b=await r.blob(); const u=URL.createObjectURL(b); const a=document.createElement("a"); a.href=u; a.download=clean+".jpg"; a.click(); URL.revokeObjectURL(u); }
+    catch(e){ window.open(url,"_blank"); }
+  }
+
+  $("ggo").addEventListener("click", gSearch);
+  $("gq").addEventListener("keydown", function(e){ if(e.key==="Enter") gSearch(); });
+  $("gmore").addEventListener("click", function(){ gBatch(20); });
+
+  // ===== onglets =====
+  function showView(v){
+    $("view-forge").style.display   = v==="forge"   ? "" : "none";
+    $("view-galerie").style.display = v==="galerie" ? "" : "none";
+    $("tabForge").classList.toggle("on", v==="forge");
+    $("tabGalerie").classList.toggle("on", v==="galerie");
+  }
+  $("tabForge").onclick   = function(){ showView("forge"); };
+  $("tabGalerie").onclick = function(){ showView("galerie"); };
 </script>
 </body>
 </html>
