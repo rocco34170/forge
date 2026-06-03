@@ -541,6 +541,7 @@
     $("gchips").appendChild(c);
   });
   const enc = encodeURIComponent;
+  const ART2D = /painting|drawing|print|watercolou?r|engraving|etching|gouache|fresco/i;
 
   function relevant(text){
     const words = gTerm.toLowerCase().split(/\s+/).filter(function(w){ return w.length>=3; });
@@ -560,6 +561,7 @@
       gMetIDs=((await r.json()).objectIDs)||[];
     }catch(e){ gMetIDs=[]; }
     await gLoad();
+    if(gShown < 15) await gLoad();
   }
 
   async function gLoad(){
@@ -576,7 +578,7 @@
       const r=await fetch("https://api.artic.edu/api/v1/artworks/search?q="+enc(gTerm)+"&fields="+f+"&limit=40&page="+page);
       const j=await r.json(); const iiif=(j.config&&j.config.iiif_url)||"https://www.artic.edu/iiif/2";
       (j.data||[]).forEach(function(d){
-        if(d.is_public_domain && d.image_id && d.artwork_type_title && /painting/i.test(d.artwork_type_title) && relevant((d.title||"")+" "+(d.artist_title||""))){
+        if(d.is_public_domain && d.image_id && d.artwork_type_title && ART2D.test(d.artwork_type_title) && relevant((d.title||"")+" "+(d.artist_title||""))){
           addItem({ title:d.title, artist:[d.artist_title,d.date_display].filter(Boolean).join(" · "),
             thumb:iiif+"/"+d.image_id+"/full/400,/0/default.jpg", full:iiif+"/"+d.image_id+"/full/1686,/0/default.jpg",
             source:"Art Institute of Chicago" });
@@ -588,11 +590,11 @@
   async function gCleveland(page){
     try{
       const skip=(page-1)*30;
-      const r=await fetch("https://openaccess-api.clevelandart.org/api/artworks/?q="+enc(gTerm)+"&cc0=1&has_image=1&type=Painting&limit=30&skip="+skip);
+      const r=await fetch("https://openaccess-api.clevelandart.org/api/artworks/?q="+enc(gTerm)+"&cc0=1&has_image=1&limit=30&skip="+skip);
       const j=await r.json();
       (j.data||[]).forEach(function(d){
         const img=d.images&&(d.images.web||d.images.print||d.images.full);
-        if(img&&img.url){
+        if(img&&img.url && ART2D.test(d.type||"")){
           addItem({ title:d.title, artist:[(d.creators&&d.creators[0]&&d.creators[0].description),d.creation_date].filter(Boolean).join(" · "),
             thumb:img.url, full:((d.images.print&&d.images.print.url)||img.url), source:"Cleveland Museum of Art" });
         }
@@ -604,7 +606,7 @@
     const slice=gMetIDs.slice(gMetIdx, gMetIdx+18); gMetIdx+=18;
     const res=await Promise.all(slice.map(function(id){ return fetch(MET+"/objects/"+id).then(r=>r.json()).catch(()=>null); }));
     res.forEach(function(o){
-      if(o && o.isPublicDomain && o.primaryImageSmall && o.classification && o.classification.toLowerCase().indexOf("painting")>=0){
+      if(o && o.isPublicDomain && o.primaryImageSmall && o.classification && ART2D.test(o.classification)){
         addItem({ title:o.title, artist:[o.artistDisplayName,o.objectDate].filter(Boolean).join(" · "),
           thumb:o.primaryImageSmall, full:o.primaryImage||o.primaryImageSmall, source:"The Met" });
       }
@@ -616,9 +618,9 @@
       const r=await fetch("https://api.vam.ac.uk/v2/objects/search?q="+enc(gTerm)+"&page_size=30&page="+page);
       const j=await r.json();
       (j.records||[]).forEach(function(d){
-        const ot=(d.objectType||"").toLowerCase();
+        const ot=(d.objectType||"");
         const id=d._primaryImageId;
-        if(id && ot.indexOf("painting")>=0){
+        if(id && ART2D.test(ot)){
           const fm="https://framemark.vam.ac.uk/collections/"+id;
           addItem({ title:d._primaryTitle||d.objectType||"Sans titre",
             artist:[ (d._primaryMaker&&d._primaryMaker.name), (d._primaryDate&&d._primaryDate.text) ].filter(Boolean).join(" · "),
